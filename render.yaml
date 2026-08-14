@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: voice-ai-patient-api
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PORT
+        value: "10000"
