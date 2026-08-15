@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
-from pydantic import EmailStr, field_serializer, field_validator
+from pydantic import EmailStr, field_serializer, field_validator, model_validator
 from sqlalchemy import Column, String
 from sqlmodel import Field, SQLModel
 
@@ -313,6 +313,20 @@ class PatientUpdate(SQLModel):
     preferred_language: Optional[str] = None
     emergency_contact_name: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def clean_empty_strings(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Clean out any empty string fields so partial updates only update provided values
+            cleaned = {}
+            for k, v in data.items():
+                if isinstance(v, str) and not v.strip():
+                    cleaned[k] = None
+                else:
+                    cleaned[k] = v
+            return cleaned
+        return data
 
     # --- Validators (same rules, only applied when field is provided) ---
 
