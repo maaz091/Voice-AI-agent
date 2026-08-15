@@ -89,39 +89,66 @@ class Patient(SQLModel, table=True):
     deleted_at: Optional[datetime] = Field(default=None)
 
 
+US_STATE_NAMES = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
+    "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
+    "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS", "missouri": "MO",
+    "montana": "MT", "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", "ohio": "OH",
+    "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
+    "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+    "district of columbia": "DC",
+}
+
 # ---------------------------------------------------------------------------
 # Shared Validation Helpers
 # ---------------------------------------------------------------------------
 
 def _validate_name(value: str, field_name: str) -> str:
     """Validate a name field: 1-50 chars, alphabetic + hyphens/apostrophes."""
-    if not NAME_PATTERN.match(value):
+    clean = value.strip() if isinstance(value, str) else ""
+    if not NAME_PATTERN.match(clean):
         raise ValueError(
             f"{field_name} must be 1-50 characters and contain only "
             f"letters, hyphens, and apostrophes"
         )
-    return value
+    return clean
 
 
 def _validate_phone(value: str) -> str:
-    """Validate phone number: exactly 10 digits, no formatting."""
-    if not PHONE_PATTERN.match(value):
-        raise ValueError("Phone number must be exactly 10 digits with no spaces, dashes, or parentheses")
-    return value
+    """Validate phone number: strips formatting down to exactly 10 digits."""
+    if not value or not isinstance(value, str):
+        raise ValueError("Phone number is required")
+    # Clean out spaces, dashes, parens, plus signs
+    cleaned = re.sub(r"[^\d]", "", value)
+    if len(cleaned) == 11 and cleaned.startswith("1"):
+        cleaned = cleaned[1:]
+    if not PHONE_PATTERN.match(cleaned):
+        raise ValueError("Phone number must be exactly 10 digits (e.g. 5551234567)")
+    return cleaned
 
 
 def _validate_dob(value: Any) -> date:
     """
-    Parse date_of_birth from MM/DD/YYYY string to datetime.date.
+    Parse date_of_birth from multiple string formats to datetime.date.
     Rejects future dates.
     """
     if isinstance(value, date) and not isinstance(value, datetime):
-        # Already a date object
         parsed = value
     elif isinstance(value, str):
-        try:
-            parsed = datetime.strptime(value, "%m/%d/%Y").date()
-        except ValueError:
+        val_clean = value.strip()
+        parsed = None
+        # Try common formats that LLMs might output
+        for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y", "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
+            try:
+                parsed = datetime.strptime(val_clean, fmt).date()
+                break
+            except ValueError:
+                continue
+        if parsed is None:
             raise ValueError(
                 "date_of_birth must be a valid date in MM/DD/YYYY format"
             )
@@ -136,30 +163,37 @@ def _validate_dob(value: Any) -> date:
 
 
 def _validate_sex(value: str) -> str:
-    """Validate sex against exact enum values."""
-    valid = {e.value for e in SexEnum}
-    if value not in valid:
-        raise ValueError(
-            f"sex must be one of: {', '.join(sorted(valid))}"
-        )
-    return value
+    """Validate and normalize sex against exact enum values."""
+    if not value or not isinstance(value, str):
+        raise ValueError("sex is required")
+    val_lower = value.strip().lower()
+    for e in SexEnum:
+        if e.value.lower() == val_lower:
+            return e.value
+    if "decline" in val_lower or "prefer not" in val_lower:
+        return SexEnum.DECLINE.value
+    valid = [e.value for e in SexEnum]
+    raise ValueError(f"sex must be one of: {', '.join(valid)}")
 
 
 def _validate_state(value: str) -> str:
-    """Validate 2-letter US state abbreviation."""
-    upper = value.upper()
-    if upper not in US_STATES:
-        raise ValueError(
-            f"state must be a valid 2-letter US state abbreviation"
-        )
-    return upper
+    """Validate and normalize US state to 2-letter uppercase abbreviation."""
+    if not value or not isinstance(value, str):
+        raise ValueError("state is required")
+    val_clean = value.strip().lower()
+    if val_clean.upper() in US_STATES:
+        return val_clean.upper()
+    if val_clean in US_STATE_NAMES:
+        return US_STATE_NAMES[val_clean]
+    raise ValueError("state must be a valid 2-letter US state abbreviation (e.g. CA, NY, TX)")
 
 
 def _validate_zip(value: str) -> str:
     """Validate ZIP code: 5-digit or ZIP+4 format."""
-    if not ZIP_PATTERN.match(value):
+    clean = value.strip() if isinstance(value, str) else ""
+    if not ZIP_PATTERN.match(clean):
         raise ValueError("zip_code must be 5-digit (12345) or ZIP+4 (12345-6789) format")
-    return value
+    return clean
 
 
 # ---------------------------------------------------------------------------
@@ -240,12 +274,19 @@ class PatientCreate(SQLModel):
     def validate_zip(cls, v: str) -> str:
         return _validate_zip(v)
 
-    @field_validator("emergency_contact_phone")
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: Any) -> Optional[str]:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("emergency_contact_phone", mode="before")
     @classmethod
     def validate_emergency_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
+        if v is not None and isinstance(v, str) and v.strip():
             return _validate_phone(v)
-        return v
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -344,12 +385,19 @@ class PatientUpdate(SQLModel):
             return _validate_zip(v)
         return v
 
-    @field_validator("emergency_contact_phone")
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: Any) -> Optional[str]:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
+    @field_validator("emergency_contact_phone", mode="before")
     @classmethod
     def validate_emergency_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
+        if v is not None and isinstance(v, str) and v.strip():
             return _validate_phone(v)
-        return v
+        return None
 
 
 # ---------------------------------------------------------------------------
