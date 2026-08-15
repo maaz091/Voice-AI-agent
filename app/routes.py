@@ -147,8 +147,9 @@ def update_patient(
             content={"data": None, "error": f"Patient with id '{patient_id}' not found"},
         )
 
-    # Only update fields that were actually provided (not None)
+    # Only update fields that were actually provided and are not None
     update_data = patient_data.model_dump(exclude_unset=True)
+    update_data = {k: v for k, v in update_data.items() if v is not None}
 
     if not update_data:
         return {"data": _patient_to_read(patient), "error": None}
