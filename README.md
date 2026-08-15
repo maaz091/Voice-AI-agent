@@ -1,191 +1,188 @@
 # Voice AI Agent — Patient Registration System
 
-A voice-based AI agent accessible via a real phone number that collects standard U.S. patient demographic information through natural conversation, persists that data to a PostgreSQL database, and exposes it through a RESTful API.
+An enterprise-ready voice-based AI agent accessible via a real U.S. telephone number that collects patient demographic information through natural conversation, persists data to a cloud PostgreSQL database, and exposes a RESTful API.
 
-## Architecture
+---
+
+## Submission Details
+
+- **GitHub Repository**: [https://github.com/maaz091/Voice-AI-agent](https://github.com/maaz091/Voice-AI-agent)
+- **Live Phone Number**: `+1 (434) 454-3104` (Call from any US/international phone)
+- **Live REST API Base URL**: [https://voice-ai-agent-10sa.onrender.com](https://voice-ai-agent-10sa.onrender.com)
+- **Interactive Swagger UI**: [https://voice-ai-agent-10sa.onrender.com/docs](https://voice-ai-agent-10sa.onrender.com/docs)
+- **Interactive ReDoc**: [https://voice-ai-agent-10sa.onrender.com/redoc](https://voice-ai-agent-10sa.onrender.com/redoc)
+
+---
+
+## Architecture Overview
 
 ```
-Phone Call (Caller) → Vapi.ai (Voice AI + LLM) → FastAPI Backend → Neon PostgreSQL
-                                                        ↑
-                                                  REST API Client
+Caller (Phone) ──► Vapi.ai (Telephony & Orchestration)
+                       │
+                       ├─► STT: Soniox RT / Deepgram Nova-2
+                       ├─► LLM: GPT-4o-mini / GPT-4.1 (Prompt & Tools)
+                       └─► TTS: ElevenLabs Turbo v2.5 (Sarah)
+                              │
+                              ▼ REST API Calls (Tools)
+                 FastAPI Backend Service (Docker on Render)
+                              │
+                              ▼ SQLModel / SQLAlchemy Engine
+                 Cloud PostgreSQL Database (Neon Serverless)
 ```
 
-| Layer | Technology | Justification |
+| Layer | Technology | Rationale & Justification |
 |---|---|---|
-| **Telephony + Voice AI** | Vapi.ai | Abstracts STT/TTS/telephony complexity. Free trial with phone number included. |
-| **LLM** | GPT-4o-mini (via Vapi) | Best quality-to-cost ratio for conversational tasks. |
-| **Backend** | Python + FastAPI | Async-capable, auto-generated OpenAPI docs, built-in Pydantic validation. |
-| **Database** | PostgreSQL (Neon) | Cloud-hosted, persistent across deploys, free tier. SQLModel makes the ORM code identical to SQLite. |
-| **Hosting** | Render.com | Free tier, Docker support, 1-click deploy from GitHub. |
+| **Telephony & Agent Orchestration** | Vapi.ai | Production-grade WebRTC/SIP bridge, ultra-low latency streaming, function calling integration. |
+| **Voice Synthesis (TTS)** | ElevenLabs `eleven_turbo_v2_5` (`Sarah`) | Natural prosody, realistic pauses, and human-like clinical tone. |
+| **Speech-to-Text (STT)** | Soniox RT v5 / Deepgram | Fast real-time streaming recognition of alphanumeric characters and spellings. |
+| **Reasoning Engine (LLM)** | GPT-4o-mini | High conversational accuracy, reliable structured tool calling, cost-efficient. |
+| **Backend API** | FastAPI + SQLModel | High-performance asynchronous REST framework with strict Pydantic envelope validation. |
+| **Database** | Neon PostgreSQL (Serverless) | Cloud-hosted, persistent across redeploys, connection pooling with resilient auto-reconnect. |
+| **Hosting & CI/CD** | Render (Docker Runtime) | Automated container builds and deployments from GitHub repository. |
 
-## Quick Start (Local Development)
+---
 
-### Prerequisites
-- Python 3.10+
-- pip
+## Key Assessment Requirements & Implementation Highlights
 
-### Setup
+### 1. Strict Envelope Responses
+Every single API endpoint returns the uniform JSON envelope:
+```json
+{
+  "data": <object | array | null>,
+  "error": <string | null>
+}
+```
+Custom exception handlers in `app/main.py` override FastAPI's default 422, 404, and 500 error formats to guarantee strict compliance.
 
+### 2. Patient Data Model & Voice Tolerant Validation
+- **`date_of_birth`**: Stored as a true SQL `Date` column and serialized as `MM/DD/YYYY` in all outputs. The validator accepts `MM/DD/YYYY`, `YYYY-MM-DD`, and natural voice representations.
+- **`sex`**: Strictly validated against `SexEnum` (`"Male"`, `"Female"`, `"Other"`, `"Decline to Answer"`).
+- **`phone_number`**: Auto-cleans formatted speech (e.g. `(555) 123-4567` or `555-123-4567`) to exact 10 digits.
+- **`state`**: Maps full state names (e.g. "Texas", "California") to 2-letter uppercase codes (`TX`, `CA`).
+- **`deleted_at`**: Soft-delete pattern; soft-deleted records are automatically excluded from list and lookup queries.
+
+### 3. Conversational Capabilities & Edge Cases
+1. **Returning Patient Duplicate Detection**: Prompt initiates phone lookup first. If the caller exists, it welcomes them by first name and enters partial update mode.
+2. **Partial Updates**: Updates only the requested field (e.g. `"update my city to Dallas"`) without nullifying other fields.
+3. **Conversational Self-Correction**: Caller can say "actually my last name is..." or "start over" at any point.
+4. **Invalid Input Handling**: Checks for invalid or future birth dates, polite re-prompting.
+5. **Confirmation Step**: Reads back all demographic data before calling the creation tool.
+
+---
+
+## Project Structure
+
+```
+Voice-AI-agent/
+├── app/
+│   ├── __init__.py           # Package marker
+│   ├── main.py               # FastAPI initialization, CORS, envelope exception handlers
+│   ├── models.py             # SQLModel table, schemas, enums, voice validators
+│   ├── database.py           # Engine creation (Neon PostgreSQL with SQLite fallback)
+│   ├── routes.py             # 5 REST endpoints + health check + stdout logging
+│   └── seed.py               # Automatic seeding of initial records on startup
+├── test_suite.py             # 13 comprehensive in-process tests (TestClient)
+├── VOICE_AGENT_SETUP.md      # Detailed system prompt & Vapi tool schema configurations
+├── Dockerfile                # Production Docker container definition
+├── render.yaml               # Render Infrastructure-as-Code deploy spec
+├── requirements.txt          # Python dependencies
+├── .env.example              # Environment variable template
+└── README.md                 # Complete documentation
+```
+
+---
+
+## Local Development & Testing
+
+### 1. Installation
 ```bash
-# Clone the repository
-git clone <repo-url>
-cd voice-ai-agent
+# Clone repository
+git clone https://github.com/maaz091/Voice-AI-agent.git
+cd Voice-AI-agent
 
 # Install dependencies
 pip install -r requirements.txt
-
-# (Optional) Set up environment variables for Neon PostgreSQL
-cp .env.example .env
-# Edit .env with your Neon DATABASE_URL
-
-# Run the server (uses SQLite by default if no DATABASE_URL is set)
-uvicorn app.main:app --reload
 ```
 
-The server starts at `http://localhost:8000`. Two seed patient records are automatically inserted on first run.
-
-### API Documentation
-FastAPI auto-generates interactive API docs:
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | Yes (prod) | `sqlite:///./patients.db` | PostgreSQL connection string from Neon |
-| `PORT` | No | `8000` | Server port (Render sets this automatically) |
-
-## API Endpoints
-
-All responses use the strict envelope format:
-```json
-{ "data": <payload or null>, "error": <string or null> }
-```
-
-| Method | Endpoint | Status | Description |
-|---|---|---|---|
-| `GET` | `/` | 200 | Health check |
-| `GET` | `/patients` | 200 | List all non-deleted patients. Filters: `?last_name=`, `?date_of_birth=`, `?phone_number=` |
-| `GET` | `/patients/{id}` | 200/404 | Get patient by UUID |
-| `POST` | `/patients` | 201 | Create new patient |
-| `PUT` | `/patients/{id}` | 200/404 | Partial update |
-| `DELETE` | `/patients/{id}` | 200/404 | Soft-delete (sets `deleted_at`) |
-
-### Example: Create a Patient
-
+### 2. Running the Server Locally
 ```bash
-curl -X POST http://localhost:8000/patients \
-  -H "Content-Type: application/json" \
-  -d '{
-    "first_name": "Alice",
-    "last_name": "Brown",
-    "date_of_birth": "01/15/1992",
-    "sex": "Female",
-    "phone_number": "5551234567",
-    "address_line_1": "789 Pine St",
-    "city": "Chicago",
-    "state": "IL",
-    "zip_code": "60601"
-  }'
+# Starts with SQLite fallback if DATABASE_URL is unset
+python -m uvicorn app.main:app --reload --port 8000
 ```
+Visit `http://localhost:8000/docs` to test via Swagger UI.
 
-### Example: Validation Error Response (422)
-
-```json
-{
-  "data": null,
-  "error": "first_name: Value error, first_name must be 1-50 characters and contain only letters, hyphens, and apostrophes"
-}
-```
-
-## Patient Data Model
-
-| Field | Type | Validation | Required |
-|---|---|---|---|
-| `patient_id` | UUID | Auto-generated | Auto |
-| `first_name` | String | 1-50 chars, alphabetic + hyphens/apostrophes | Yes |
-| `last_name` | String | 1-50 chars, alphabetic + hyphens/apostrophes | Yes |
-| `date_of_birth` | Date | MM/DD/YYYY format, not in future | Yes |
-| `sex` | Enum | Male, Female, Other, Decline to Answer | Yes |
-| `phone_number` | String | Exactly 10 digits | Yes |
-| `email` | String | Valid email format | No |
-| `address_line_1` | String | Street address | Yes |
-| `address_line_2` | String | Apt/Suite/Unit | No |
-| `city` | String | 1-100 characters | Yes |
-| `state` | String | 2-letter US state abbreviation | Yes |
-| `zip_code` | String | 5-digit or ZIP+4 format | Yes |
-| `insurance_provider` | String | Insurance company name | No |
-| `insurance_member_id` | String | Member/subscriber ID | No |
-| `preferred_language` | String | Default: "English" | No |
-| `emergency_contact_name` | String | Full name | No |
-| `emergency_contact_phone` | String | Exactly 10 digits | No |
-| `created_at` | Timestamp | Auto-generated (UTC) | Auto |
-| `updated_at` | Timestamp | Auto-updated on modification (UTC) | Auto |
-| `deleted_at` | Timestamp | Nullable, for soft deletes | Auto |
-
-## Voice Agent Configuration
-
-See [`VOICE_AGENT_SETUP.md`](VOICE_AGENT_SETUP.md) for the complete system prompt and Vapi.ai tool schemas.
-
-### Conversation Flow
-1. Greet caller → ask for phone number
-2. Look up existing record (duplicate detection)
-3. Collect required fields conversationally
-4. Offer optional fields (insurance, emergency contact, language)
-5. Read back all info and confirm
-6. Save to database → confirm success or relay error
-
-### Edge Cases Handled
-- Invalid date of birth → re-prompts specifically
-- "Start over" → clears context, restarts cheerfully
-- Corrections → updates specific fields
-- Invalid data → re-prompts with clear guidance
-- Database write failure → graceful error message to caller
-
-## Deployment
-
-### Option 1: Render (Recommended)
-
-1. Push code to GitHub
-2. Go to [Render Dashboard](https://dashboard.render.com)
-3. New → Web Service → Connect your repo
-4. Render auto-detects `render.yaml` or `Dockerfile`
-5. Add environment variable: `DATABASE_URL` = your Neon connection string
-6. Deploy
-
-### Option 2: Docker
-
+### 3. Running the Automated Test Suite
 ```bash
-docker build -t voice-ai-api .
-docker run -p 8000:8000 -e DATABASE_URL="postgresql://..." voice-ai-api
+python test_suite.py
 ```
+This runs 13 automated tests covering:
+- Health check (200)
+- GET `/patients` (List & filters)
+- GET `/patients/{id}` (UUID lookup & 404 envelope)
+- POST `/patients` (Creation & 201 envelope)
+- PUT `/patients/{id}` (Partial updates)
+- DELETE `/patients/{id}` (Soft deletion & exclusion)
+- 422 Validation errors (Invalid DOB, invalid name characters, invalid phone length, invalid sex enum)
 
-### Database Setup (Neon)
+---
 
-1. Sign up at [neon.tech](https://neon.tech) (free, no credit card)
-2. Create a project
-3. Copy the connection string from the Dashboard
-4. Set it as `DATABASE_URL` in your environment
+## Testing Guide for Reviewers
 
-## Known Limitations & Trade-offs
+### Option A: Test via Live Voice Phone Call
+1. Dial **`+1 (434) 454-3104`** from any phone.
+2. **Test New Patient Registration**:
+   - Provide phone number: `5551234567` (or your own number)
+   - Provide Name, DOB, Sex, and Address.
+   - Confirm details when read back.
+   - Verify creation immediately on `https://voice-ai-agent-10sa.onrender.com/patients`.
+3. **Test Returning Patient & Update**:
+   - Call back with the same phone number.
+   - The assistant greets you: *"It looks like we already have a record for [Name]..."*
+   - Say: *"Please update my city to Dallas"*.
+   - Verify update in the live database.
 
-| Limitation | Rationale |
-|---|---|
-| **SQLite for local dev** | Simplifies local setup. Production uses Neon PostgreSQL. |
-| **No authentication on API** | Assessment scope. In production, would add API key or JWT auth. |
-| **No HIPAA compliance** | Explicitly out of scope per assessment. No real patient data stored. |
-| **Render free tier spin-down** | Service spins down after 15 min inactivity (30-60s cold start). Database persistence is unaffected (Neon is external). |
-| **No rate limiting** | Would add in production to prevent abuse. |
-| **CORS allow all origins** | Required for Vapi tool calls. In production, would whitelist specific domains. |
+### Option B: Test via Live REST API
+- **List Patients**:
+  ```bash
+  curl -s https://voice-ai-agent-10sa.onrender.com/patients
+  ```
+- **Lookup by Phone**:
+  ```bash
+  curl -s "https://voice-ai-agent-10sa.onrender.com/patients?phone_number=5550100000"
+  ```
+- **Create Patient**:
+  ```bash
+  curl -X POST https://voice-ai-agent-10sa.onrender.com/patients \
+    -H "Content-Type: application/json" \
+    -d '{
+      "first_name": "Marcus",
+      "last_name": "Aurelius",
+      "date_of_birth": "04/26/1980",
+      "sex": "Male",
+      "phone_number": "5559998888",
+      "address_line_1": "1 Palatine Hill",
+      "city": "Rome",
+      "state": "NY",
+      "zip_code": "10001"
+    }'
+  ```
 
-## Next Steps (What I'd Do With More Time)
+---
 
-- **Automated test suite** — Pytest with fixtures for database isolation
-- **API key authentication** — Protect endpoints from unauthorized access
-- **Rate limiting** — Prevent abuse with FastAPI middleware
-- **Call transcript storage** — Link call summaries to patient records
-- **Appointment scheduling** — Mock scheduling flow after registration
-- **Dashboard UI** — Simple web interface to view registered patients
-- **CI/CD pipeline** — GitHub Actions for linting, testing, and auto-deploy
-- **Structured logging** — JSON logging with correlation IDs for observability
+## Design Trade-offs & Known Limitations
+
+1. **Authentication Scope**: Per the assessment instructions, API endpoints are publicly accessible to allow direct reviewer testing and Vapi webhook calls. In a production deployment, API keys or OAuth2 JWT tokens would guard all write endpoints.
+2. **Cold Starts on Render Free Tier**: The web service runs on Render's container runtime. If inactive, the service may spin down (taking ~30s on initial cold request). Neon PostgreSQL database persistence remains unaffected.
+3. **CORS Configuration**: Wildcard CORS (`*`) is enabled for seamless cross-origin inspection and webhook integration.
+4. **HIPAA Compliance**: As noted in the assignment requirements, this system is a proof-of-concept demonstration and does not contain Protected Health Information (PHI). Production rollout would require a HIPAA-compliant BAA with cloud providers, encrypted storage-at-rest, and audit logging.
+
+---
+
+## Prompt & LLM System Message
+
+The complete prompt is documented in [`VOICE_AGENT_SETUP.md`](VOICE_AGENT_SETUP.md) and configured in the Vapi assistant. Key prompt techniques include:
+- Step-by-step sequential intake preventing cognitive overload.
+- Strict phone formatting rules (10 digits without punctuation).
+- Explicit enum mappings and date format normalization.
+- Read-back confirmation before committing database writes.
+- Conversational recovery pathways ("start over", field corrections, polite repetition).
