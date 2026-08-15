@@ -19,9 +19,9 @@ An enterprise-ready voice-based AI agent accessible via a real U.S. telephone nu
 ```
 Caller (Phone) ──► Vapi.ai (Telephony & Orchestration)
                        │
-                       ├─► STT: Soniox RT / Deepgram Nova-2
-                       ├─► LLM: GPT-4o-mini / GPT-4.1 (Prompt & Tools)
-                       └─► TTS: ElevenLabs Turbo v2.5 (Sarah)
+                       ├─► STT: Soniox STT RT v5
+                       ├─► LLM: OpenAI GPT-4.1 (Prompt & Tools)
+                       └─► TTS: ElevenLabs Eleven Turbo v2.5 (Sarah)
                               │
                               ▼ REST API Calls (Tools)
                  FastAPI Backend Service (Docker on Render)
@@ -33,9 +33,9 @@ Caller (Phone) ──► Vapi.ai (Telephony & Orchestration)
 | Layer | Technology | Rationale & Justification |
 |---|---|---|
 | **Telephony & Agent Orchestration** | Vapi.ai | Production-grade WebRTC/SIP bridge, ultra-low latency streaming, function calling integration. |
-| **Voice Synthesis (TTS)** | ElevenLabs `eleven_turbo_v2_5` (`Sarah`) | Natural prosody, realistic pauses, and human-like clinical tone. |
-| **Speech-to-Text (STT)** | Soniox RT v5 / Deepgram | Fast real-time streaming recognition of alphanumeric characters and spellings. |
-| **Reasoning Engine (LLM)** | GPT-4o-mini | High conversational accuracy, reliable structured tool calling, cost-efficient. |
+| **Voice Synthesis (TTS)** | ElevenLabs `Eleven Turbo v2.5` (`Sarah`) | Natural prosody, realistic pauses, and human-like clinical tone. |
+| **Speech-to-Text (STT)** | Soniox STT RT v5 | Fast real-time streaming recognition (1.8% WER, ~410ms latency) for alphanumeric characters and spellings. |
+| **Reasoning Engine (LLM)** | OpenAI GPT-4.1 | High conversational intelligence, robust tool calling, fast ~690ms latency. |
 | **Backend API** | FastAPI + SQLModel | High-performance asynchronous REST framework with strict Pydantic envelope validation. |
 | **Database** | Neon PostgreSQL (Serverless) | Cloud-hosted, persistent across redeploys, connection pooling with resilient auto-reconnect. |
 | **Hosting & CI/CD** | Render (Docker Runtime) | Automated container builds and deployments from GitHub repository. |
